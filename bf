@@ -1,3 +1,4 @@
+print('Yes Sam Kak MakMak ')
 local placeId = game.PlaceId
 if placeId == 2753915549 or placeId == 4442272183 or placeId == 7449423635 then
     BF = true
@@ -17,7 +18,7 @@ elseif placeId == 2809202155 then
 end
 spawn(function()
 	while wait() do 
-		print("bf")
+		print("JayKung#8973 ")
 	end
 end)
 if BF then
