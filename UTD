@@ -2495,3 +2495,4 @@ if not GlobalConfig.Data.HasJoinedDiscord then
         }
     })
 end
+--
