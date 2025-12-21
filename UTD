@@ -1,0 +1,2497 @@
+local Players = game:GetService("Players")
+local HttpService = game:GetService("HttpService")
+local UserInputService = game:GetService("UserInputService")
+local LocalPlayer = Players.LocalPlayer
+
+if getgenv().UTD_Unload then
+    getgenv().UTD_Unload()
+end
+
+local MacLib = loadstring(game:HttpGet("https://github.com/biggaboy212/Maclib/releases/latest/download/maclib.txt"))()
+
+local GlobalConfig = {
+    Folder = "ByorlLastStand/Universal Tower Defense",
+    File = "Global.json",
+    Data = {
+        UIScale = 1,
+        AutoSave = true,
+        HasJoinedDiscord = false,
+        MacroMaps = {}
+    }
+}
+
+function GlobalConfig:Load()
+    if isfile(self.Folder .. "/" .. self.File) then
+        local success, data = pcall(function()
+            return HttpService:JSONDecode(readfile(self.Folder .. "/" .. self.File))
+        end)
+        if success then
+            for k, v in pairs(data) do
+                self.Data[k] = v
+            end
+        end
+    end
+end
+
+function GlobalConfig:Save()
+    if not isfolder(self.Folder) then makefolder(self.Folder) end
+    writefile(self.Folder .. "/" .. self.File, HttpService:JSONEncode(self.Data))
+end
+
+GlobalConfig:Load()
+
+local ConfigManager = {}
+ConfigManager.Folder = "ByorlLastStand/Universal Tower Defense/" .. LocalPlayer.UserId
+ConfigManager.Elements = {}
+ConfigManager.Flags = {}
+ConfigManager.CurrentConfig = "default"
+
+function ConfigManager:Initialize()
+    if not isfolder("ByorlLastStand") then makefolder("ByorlLastStand") end
+    if not isfolder("ByorlLastStand/Universal Tower Defense") then makefolder("ByorlLastStand/Universal Tower Defense") end
+    if not isfolder(self.Folder) then makefolder(self.Folder) end
+    
+    self:LoadAutoLoad()
+end
+
+function ConfigManager:Register(flag, element, type)
+    self.Elements[flag] = {
+        Element = element,
+        Type = type
+    }
+    self.Flags[flag] = element
+end
+
+function ConfigManager:GetConfigPath(name)
+    return self.Folder .. "/" .. name .. ".json"
+end
+
+function ConfigManager:Save(name)
+    name = name or self.CurrentConfig
+    local config = {}
+    
+    for flag, data in pairs(self.Elements) do
+        local element = data.Element
+        local type = data.Type
+        
+        if not element then continue end
+
+        if type == "Toggle" then
+            config[flag] = element.State
+        elseif type == "Slider" then
+            config[flag] = element.Value
+        elseif type == "Dropdown" then
+            config[flag] = element.Value
+        elseif type == "Input" then
+            config[flag] = element.Text
+        elseif type == "Colorpicker" then
+            if element.Color then
+                config[flag] = {
+                    R = element.Color.R,
+                    G = element.Color.G,
+                    B = element.Color.B,
+                    Alpha = element.Alpha
+                }
+            end
+        elseif type == "Keybind" then
+            if element.GetBind then
+                config[flag] = element:GetBind().Name
+            end
+        end
+    end
+    
+    writefile(self:GetConfigPath(name), HttpService:JSONEncode(config))
+end
+
+function ConfigManager:Load(name)
+    local path = self:GetConfigPath(name)
+    if not isfile(path) then return end
+    
+    local success, config = pcall(function()
+        return HttpService:JSONDecode(readfile(path))
+    end)
+    
+    if not success then return end
+    
+    self.CurrentConfig = name
+    local wasAutoSave = GlobalConfig.Data.AutoSave
+    GlobalConfig.Data.AutoSave = false
+    
+    for flag, value in pairs(config) do
+        local data = self.Elements[flag]
+        if data then
+            local element = data.Element
+            local type = data.Type
+            
+            if not element then continue end
+
+            if type == "Toggle" then
+                if element.UpdateState then element:UpdateState(value) end
+            elseif type == "Slider" then
+                if element.UpdateValue then element:UpdateValue(value) end
+            elseif type == "Dropdown" then
+                if element.UpdateSelection then element:UpdateSelection(value) end
+            elseif type == "Input" then
+                if element.UpdateText then element:UpdateText(value) end
+            elseif type == "Colorpicker" then
+                if element.SetColor and element.SetAlpha then
+                    element:SetColor(Color3.new(value.R, value.G, value.B))
+                    element:SetAlpha(value.Alpha)
+                end
+            elseif type == "Keybind" then
+                if element.Bind then element:Bind(Enum.KeyCode[value]) end
+            end
+        end
+    end
+    
+    GlobalConfig.Data.AutoSave = wasAutoSave
+end
+
+function ConfigManager:Delete(name)
+    local path = self:GetConfigPath(name)
+    if isfile(path) then
+        delfile(path)
+    end
+end
+
+function ConfigManager:GetConfigs()
+    local configs = {}
+    if isfolder(self.Folder) then
+        for _, file in ipairs(listfiles(self.Folder)) do
+            if file:sub(-5) == ".json" then
+                table.insert(configs, file:match("([^\\/]+)%.json$"))
+            end
+        end
+    end
+    return configs
+end
+
+function ConfigManager:SetAutoLoad(name)
+    writefile(self.Folder .. "/autoload.txt", name)
+end
+
+function ConfigManager:LoadAutoLoad()
+    if isfile(self.Folder .. "/autoload.txt") then
+        local name = readfile(self.Folder .. "/autoload.txt")
+        self:Load(name)
+    end
+end
+
+local UI = {}
+
+function UI.WrapCallback(callback)
+    return function(...)
+        if callback then callback(...) end
+        if GlobalConfig.Data.AutoSave then
+            ConfigManager:Save()
+        end
+    end
+end
+
+function UI.Toggle(section, options, flag)
+    options.Callback = UI.WrapCallback(options.Callback)
+    local element = section:Toggle(options)
+    if flag then ConfigManager:Register(flag, element, "Toggle") end
+    return element
+end
+
+function UI.Slider(section, options, flag)
+    if options.Min then options.Minimum = options.Min end
+    if options.Max then options.Maximum = options.Max end
+    if options.Decimals then options.Precision = options.Decimals end
+
+    if options.Minimum == nil then options.Minimum = 0 end
+    if options.Maximum == nil then options.Maximum = 100 end
+    if options.Default == nil then options.Default = options.Minimum end
+    if options.Precision == nil then options.Precision = 1 end
+
+    options.Callback = UI.WrapCallback(options.Callback)
+    local element = section:Slider(options)
+    if flag then ConfigManager:Register(flag, element, "Slider") end
+    return element
+end
+
+function UI.Dropdown(section, options, flag)
+    if options.Search == nil then options.Search = true end
+    options.Callback = UI.WrapCallback(options.Callback)
+    local element = section:Dropdown(options)
+    if flag then ConfigManager:Register(flag, element, "Dropdown") end
+    return element
+end
+
+function UI.Input(section, options, flag)
+    options.Callback = UI.WrapCallback(options.Callback)
+    local element = section:Input(options)
+    if flag then ConfigManager:Register(flag, element, "Input") end
+    return element
+end
+
+function UI.Colorpicker(section, options, flag)
+    options.Callback = UI.WrapCallback(options.Callback)
+    local element = section:Colorpicker(options)
+    if flag then ConfigManager:Register(flag, element, "Colorpicker") end
+    return element
+end
+
+function UI.Keybind(section, options, flag)
+    options.Callback = UI.WrapCallback(options.Callback)
+    local element = section:Keybind(options)
+    if flag then ConfigManager:Register(flag, element, "Keybind") end
+    return element
+end
+
+function UI.Label(section, options, flag)
+    local element = section:Label(options)
+    if flag then ConfigManager:Register(flag, element, "Label") end
+    return element
+end
+
+local Window = MacLib:Window({
+    Title = "Universal Tower Defense",
+    Subtitle = "Byorl Script",
+    Size = UDim2.fromOffset(868, 650),
+    DragStyle = 1,
+    DisabledWindowControls = {},
+    ShowUserInfo = false,
+    Keybind = Enum.KeyCode.RightControl,
+    AcrylicBlur = false,
+})
+
+Window:SetScale(GlobalConfig.Data.UIScale)
+
+local GlobalSettings = {
+    UIBlur = Window:GlobalSetting({
+        Name = "UI Blur",
+        Default = false,
+        Callback = function(state)
+            Window:SetAcrylicBlurState(state)
+        end,
+    }),
+    Notifications = Window:GlobalSetting({
+        Name = "Notifications",
+        Default = true,
+        Callback = function(state)
+            Window:SetNotificationsState(state)
+        end,
+    }),
+    UserInfo = Window:GlobalSetting({
+        Name = "Show User Info",
+        Default = false,
+        Callback = function(state)
+            Window:SetUserInfoState(state)
+        end,
+    })
+}
+
+local LobbySettings = {
+    AutoStart = false,
+    AutoJoin = false,
+    JoinDelay = 0,
+    
+    Modes = {
+        Story = { Map = "Final Valley", Difficulty = "Easy", Act = "1", Multiplier = 1.0, FriendsOnly = false },
+        LegendStage = { Map = "Final Valley", Difficulty = "Easy", Act = "1", Multiplier = 1.0, FriendsOnly = false },
+        VirtualRealm = { Map = "Final Valley", Difficulty = "Easy", Act = "1", Multiplier = 1.0, FriendsOnly = false },
+    },
+    
+    Challenge = {
+        Daily = false,
+        HalfHour = false,
+        Special = false,
+        AutoStart = false,
+        JoinDelay = 0
+    },
+    
+    Priorities = {
+        { Mode = "None", Enabled = false },
+        { Mode = "None", Enabled = false },
+        { Mode = "None", Enabled = false },
+        { Mode = "None", Enabled = false },
+    }
+}
+
+local MacroManager = {
+    Folder = "ByorlLastStand/Universal Tower Defense/Macros",
+    Macros = {},
+    CurrentMacro = nil,
+    IsRecording = false,
+    IsPlaying = false,
+    Loop = true,
+    RecordedSteps = {},
+    MacroMaps = {}, 
+    Status = "Idle",
+    StatusLabel = nil,
+    ActionLabel = nil,
+    UnitLabel = nil,
+    WaitingLabel = nil,
+    StatusText = "Idle",
+    ActionText = "None",
+    UnitText = "None",
+    WaitingText = "None"
+}
+
+getgenv().UTD_MacroManager = MacroManager
+MacroManager.MacroMaps = GlobalConfig.Data.MacroMaps or {}
+
+
+local UnitDataManager = {
+    Controller = nil,
+    CachedInventory = nil
+}
+
+local TowerDataManager = {
+    Cache = {}
+}
+
+function UnitDataManager:Initialize()
+    task.spawn(function()
+        local Packages = game:GetService("ReplicatedStorage"):WaitForChild("Packages", 10)
+        if not Packages then return end
+        
+        local Index = Packages:WaitForChild("_Index", 10)
+        if not Index then return end
+        
+        local KnitPkg = nil
+        for _, child in ipairs(Index:GetChildren()) do
+            if child.Name:match("sleitnick_knit") then
+                KnitPkg = child
+                break
+            end
+        end
+        
+        if KnitPkg then
+            local Knit = require(KnitPkg.knit)
+
+            local possibleNames = {"DataController", "InventoryController", "UnitController", "PlayerController"}
+            
+            if type(Knit.GetController) == "function" then
+                for _, name in ipairs(possibleNames) do
+                    local success, ctrl = pcall(function() return Knit.GetController(name) end)
+                    if success and ctrl then
+                        self.Controller = ctrl
+                        break
+                    end
+                end
+            end
+
+            if not self.Controller and rawget(Knit, "Controllers") then
+                for _, name in ipairs(possibleNames) do
+                    if Knit.Controllers[name] then
+                        self.Controller = Knit.Controllers[name]
+                        break
+                    end
+                end
+            end
+            
+            if not self.Controller and rawget(Knit, "Controllers") then
+                for _, controller in pairs(Knit.Controllers) do
+                    if (controller.EquippedUnits or (controller.Replica and controller.Replica.Data and controller.Replica.Data.EquippedUnits)) then
+                        self.Controller = controller
+                        break
+                    end
+                    if controller.Replica and controller.Replica.Data and controller.Replica.Data.PlayerData and controller.Replica.Data.PlayerData.Units and controller.Replica.Data.PlayerData.Units.Equipped then
+                        self.Controller = controller
+                        break
+                    end
+                end
+            end
+            
+            if getgenv().UTD_DebugMode then
+                warn("[UTD] UnitDataManager: Controller found? " .. tostring(self.Controller ~= nil))
+            end
+        end
+    end)
+end
+
+function UnitDataManager:GetData()
+    if self.Controller then
+        if self.Controller.EquippedUnits then return self.Controller end
+        if self.Controller.PlayerData then return self.Controller end
+        if self.Controller.Replica and self.Controller.Replica.Data then return self.Controller.Replica.Data end
+        if self.Controller.Data then return self.Controller.Data end
+    end
+    return nil
+end
+
+function UnitDataManager:GetUnitNameFromSlot(slot)
+    local data = self:GetData()
+    if data then
+        local equipped = data.EquippedUnits 
+            or (data.PlayerData and data.PlayerData.Units and data.PlayerData.Units.Equipped)
+            or (data.Units and data.Units.Equipped)
+            
+        local inventory = data.Inventory or data.UnitInventory
+
+        if equipped and inventory then
+            local guid = equipped[tonumber(slot)]
+            if guid then
+                local unitData = inventory[guid]
+                if unitData then
+                    return unitData.UnitId
+                end
+            end
+        end
+    end
+    return nil
+end
+
+function UnitDataManager:GetSlotFromUnitName(unitName)
+    local data = self:GetData()
+    if data then
+        local equipped = data.EquippedUnits 
+            or (data.PlayerData and data.PlayerData.Units and data.PlayerData.Units.Equipped)
+            or (data.Units and data.Units.Equipped)
+            
+        local inventory = data.Inventory or data.UnitInventory
+
+        if equipped and inventory then
+            for slot, guid in pairs(equipped) do
+                local unitData = inventory[guid]
+                if unitData and unitData.UnitId == unitName then
+                    return slot
+                end
+            end
+        end
+        
+        if getgenv().UTD_DebugMode then
+            warn("[UTD Debug] GetSlotFromUnitName failed for " .. tostring(unitName))
+            warn("Data found: " .. tostring(data ~= nil))
+            warn("Equipped found: " .. tostring(equipped ~= nil))
+            warn("Inventory found: " .. tostring(inventory ~= nil))
+        end
+    end
+    return nil
+end
+
+function TowerDataManager:GetTowerStats(unitName)
+    if self.Cache[unitName] then return self.Cache[unitName] end
+    
+    local rs = game:GetService("ReplicatedStorage")
+    local paths = {
+        rs:FindFirstChild("Shared") and rs.Shared:FindFirstChild("Data") and rs.Shared.Data:FindFirstChild("Towers"),
+        rs:FindFirstChild("Network") and rs.Network:FindFirstChild("Data") and rs.Network.Data:FindFirstChild("Towers"),
+        rs:FindFirstChild("Data") and rs.Data:FindFirstChild("Towers")
+    }
+
+    for _, folder in ipairs(paths) do
+        if folder then
+            local module = folder:FindFirstChild(unitName)
+            if module then
+                local success, data = pcall(function() return require(module) end)
+                if success and data and data.Stats then
+                    self.Cache[unitName] = data.Stats
+                    return data.Stats
+                end
+            end
+        end
+    end
+    
+    if getgenv().UTD_DebugMode then
+        warn("[UTD] TowerDataManager: Could not find stats for " .. tostring(unitName))
+        for _, folder in ipairs(paths) do
+            if folder then
+                warn("Available units in " .. folder:GetFullName() .. ":")
+                for _, child in ipairs(folder:GetChildren()) do
+                    warn(" - " .. child.Name)
+                end
+                break 
+            end
+        end
+    end
+    return nil
+end
+
+UnitDataManager:Initialize()
+
+function MacroManager:Initialize()
+    if not isfolder(self.Folder) then makefolder(self.Folder) end
+    self:LoadMacros()
+    self:SetupHooks()
+    self.PlacedHistory = {}
+    
+    task.spawn(function()
+        local lastStatus, lastAction, lastUnit, lastWaiting
+        while true do
+            task.wait(0.1)
+            if getgenv().UTD_Unload == nil then break end
+            
+            local Manager = getgenv().UTD_MacroManager
+            if Manager then
+                 if Manager.StatusText ~= lastStatus then
+                     if Manager.StatusLabel then 
+                        pcall(function() Manager.StatusLabel:UpdateName("Status: " .. Manager.StatusText) end)
+                     end
+                     lastStatus = Manager.StatusText
+                 end
+                 if Manager.ActionText ~= lastAction then
+                     if Manager.ActionLabel then 
+                        pcall(function() Manager.ActionLabel:UpdateName("Action: " .. Manager.ActionText) end)
+                     end
+                     lastAction = Manager.ActionText
+                 end
+                 if Manager.UnitText ~= lastUnit then
+                     if Manager.UnitLabel then 
+                        pcall(function() Manager.UnitLabel:UpdateName("Unit: " .. Manager.UnitText) end)
+                     end
+                     lastUnit = Manager.UnitText
+                 end
+                 if Manager.WaitingText ~= lastWaiting then
+                     if Manager.WaitingLabel then 
+                        pcall(function() Manager.WaitingLabel:UpdateName("Waiting: " .. Manager.WaitingText) end)
+                     end
+                     lastWaiting = Manager.WaitingText
+                 end
+            end
+        end
+    end)
+end
+
+function MacroManager:LoadMacros()
+    self.Macros = {}
+    if isfolder(self.Folder) then
+        for _, file in ipairs(listfiles(self.Folder)) do
+            if file:sub(-5) == ".json" then
+                local name = file:match("([^\\/]+)%.json$")
+                local success, data = pcall(function()
+                    return HttpService:JSONDecode(readfile(file))
+                end)
+                if success then
+                    self.Macros[name] = data
+                end
+            end
+        end
+    end
+end
+
+function MacroManager:SaveMacro(name, steps)
+    writefile(self.Folder .. "/" .. name .. ".json", HttpService:JSONEncode(steps))
+    self.Macros[name] = steps
+end
+
+function MacroManager:DeleteMacro(name)
+    if isfile(self.Folder .. "/" .. name .. ".json") then
+        delfile(self.Folder .. "/" .. name .. ".json")
+        self.Macros[name] = nil
+    end
+end
+
+function MacroManager:UpdateStatus(status, action, unit, waiting)
+    self.Status = status
+    self.StatusText = status
+    self.ActionText = action or "None"
+    self.UnitText = unit or "None"
+    self.WaitingText = waiting or "None"
+end
+
+function MacroManager:GetUnitIdAtPosition(targetCFrame)
+    local closestUnit = nil
+    local minDistance = 5
+    
+    local unitsFolder = workspace:FindFirstChild("Ignore") and workspace.Ignore:FindFirstChild("Units")
+    if not unitsFolder then return nil end
+    
+    for _, unit in ipairs(unitsFolder:GetChildren()) do
+        local hrp = unit:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            local dist = (Vector3.new(hrp.Position.X, 0, hrp.Position.Z) - Vector3.new(targetCFrame.Position.X, 0, targetCFrame.Position.Z)).Magnitude
+            if dist < minDistance then
+                minDistance = dist
+                closestUnit = unit
+            end
+        end
+    end
+    
+    return closestUnit and closestUnit.Name or nil
+end
+
+function MacroManager:SetupHooks()
+    getgenv().UTD_HookLogic = function(self, args, method, oldNamecall)
+        local remoteName = self.Name
+        
+        if getgenv().UTD_MacroManager.IsRecording and game.PlaceId == 106402284955512 then
+            task.spawn(function()
+                local Manager = getgenv().UTD_MacroManager
+                if remoteName == "PlaceUnit" then
+                    local slot = args[1]
+                    local cframe = args[2]
+                    
+                    if slot and typeof(cframe) == "CFrame" then
+                        local lastStep = Manager.RecordedSteps[#Manager.RecordedSteps]
+                        local isDuplicate = false
+                        if lastStep and lastStep.Type == "Place" and lastStep.Slot == slot then
+                             local lastPos = Vector3.new(lastStep.CFrame.X, lastStep.CFrame.Y, lastStep.CFrame.Z)
+                             if (lastPos - cframe.Position).Magnitude < 1 then
+                                 isDuplicate = true
+                             end
+                        end
+
+                        if not isDuplicate then
+                            local unitName = UnitDataManager:GetUnitNameFromSlot(slot)
+                            local step = {
+                                Type = "Place",
+                                Slot = slot,
+                                UnitName = unitName,
+                                CFrame = {
+                                    X = cframe.X, Y = cframe.Y, Z = cframe.Z,
+                                    R00 = cframe.RightVector.X, R01 = cframe.RightVector.Y, R02 = cframe.RightVector.Z,
+                                    R10 = cframe.UpVector.X, R11 = cframe.UpVector.Y, R12 = cframe.UpVector.Z,
+                                    R20 = cframe.LookVector.X, R21 = cframe.LookVector.Y, R22 = cframe.LookVector.Z
+                                },
+                                Time = workspace:GetAttribute("WaveTimer") or 0,
+                                Wave = workspace:GetAttribute("Wave") or 0
+                            }
+                            table.insert(Manager.RecordedSteps, step)
+                            local display = unitName and (unitName .. " (Slot " .. slot .. ")") or ("Slot " .. slot)
+                            Manager:UpdateStatus("Recorded Place Unit (" .. #Manager.RecordedSteps .. ")", "Place", display, "None")
+                        end
+                    end
+                
+                elseif remoteName == "UpgradeUnit" then
+                    local unitId = args[1]
+                    local unit = workspace.Ignore.Units:FindFirstChild(unitId)
+                    if unit then
+                        local pos = unit:FindFirstChild("HumanoidRootPart") and unit.HumanoidRootPart.Position or Vector3.zero
+                        local step = {
+                            Type = "Upgrade",
+                            Position = {X = pos.X, Y = pos.Y, Z = pos.Z},
+                            Time = workspace:GetAttribute("WaveTimer") or 0,
+                            Wave = workspace:GetAttribute("Wave") or 0
+                        }
+                        table.insert(Manager.RecordedSteps, step)
+                        Manager:UpdateStatus("Recorded Upgrade Unit (" .. #Manager.RecordedSteps .. ")", "Upgrade", tostring(unitId), "None")
+                    end
+                
+                elseif remoteName == "SellUnit" then
+                    local unitId = args[1]
+                    local unit = workspace.Ignore.Units:FindFirstChild(unitId)
+                    if unit then
+                        local pos = unit:FindFirstChild("HumanoidRootPart") and unit.HumanoidRootPart.Position or Vector3.zero
+                        local step = {
+                            Type = "Sell",
+                            Position = {X = pos.X, Y = pos.Y, Z = pos.Z},
+                            Time = workspace:GetAttribute("WaveTimer") or 0,
+                            Wave = workspace:GetAttribute("Wave") or 0
+                        }
+                        table.insert(Manager.RecordedSteps, step)
+                        Manager:UpdateStatus("Recorded Sell Unit (" .. #Manager.RecordedSteps .. ")", "Sell", tostring(unitId), "None")
+                    end
+
+                elseif string.find(remoteName, "Ability") then
+                    local unitId = args[1]
+                    local unit = workspace.Ignore.Units:FindFirstChild(unitId)
+                    if unit then
+                        local pos = unit:FindFirstChild("HumanoidRootPart") and unit.HumanoidRootPart.Position or Vector3.zero
+                        local step = {
+                            Type = "Ability",
+                            Position = {X = pos.X, Y = pos.Y, Z = pos.Z},
+                            AbilityName = remoteName,
+                            Time = workspace:GetAttribute("WaveTimer") or 0,
+                            Wave = workspace:GetAttribute("Wave") or 0
+                        }
+                        table.insert(Manager.RecordedSteps, step)
+                        Manager:UpdateStatus("Recorded Ability (" .. #Manager.RecordedSteps .. ")", "Ability", tostring(unitId), "None")
+                    end
+                end
+            end)
+        end
+
+        if getgenv().UTD_DebugMode then
+            if remoteName == "PlaceUnit" or remoteName == "UpgradeUnit" or remoteName == "SellUnit" or string.find(remoteName, "Ability") then
+                local results = {oldNamecall(self, unpack(args))}
+                pcall(function()
+                    local info = ""
+                    if remoteName == "PlaceUnit" then
+                        local slot = args[1]
+                        local cframe = args[2]
+                        info = "Slot: " .. tostring(slot)
+                        
+                        local unitName = UnitDataManager:GetUnitNameFromSlot(slot)
+                        if unitName then
+                            info = info .. " | Unit: " .. tostring(unitName)
+                        end
+
+                        if typeof(cframe) == "CFrame" then
+                            local unitId = getgenv().UTD_MacroManager:GetUnitIdAtPosition(cframe)
+                            if unitId then
+                                local unit = workspace:FindFirstChild("Ignore") and workspace.Ignore:FindFirstChild("Units") and workspace.Ignore.Units:FindFirstChild(unitId)
+                                if unit then
+                                    local realName = unit:GetAttribute("UnitName") or unit:GetAttribute("Name") or unit.Name
+                                    info = info .. " | Spawned: " .. tostring(realName) .. " (" .. tostring(unitId) .. ")"
+                                else
+                                    info = info .. " | ID: " .. tostring(unitId)
+                                end
+                            end
+                        end
+
+                        if not info:find("Spawned:") and results[1] == true then
+                            local msg = tostring(results[2])
+                            local id = msg:match("Placed unit ([%w%-]+)")
+                            if id then
+                                local unit = workspace:FindFirstChild("Ignore") and workspace.Ignore:FindFirstChild("Units") and workspace.Ignore.Units:FindFirstChild(id)
+                                if unit then
+                                    info = info .. " | Unit: " .. unit.Name
+                                end
+                            end
+                        end
+                    elseif remoteName == "UpgradeUnit" or remoteName == "SellUnit" or string.find(remoteName, "Ability") then
+                        local unitId = args[1]
+                        local unit = workspace:FindFirstChild("Ignore") and workspace.Ignore:FindFirstChild("Units") and workspace.Ignore.Units:FindFirstChild(unitId)
+                        if unit then
+                            info = "Unit: " .. unit.Name .. " | ID: " .. tostring(unitId)
+                        else
+                            info = "Unit ID: " .. tostring(unitId)
+                        end
+                    end
+
+                    warn("[UTD Debug] Call: " .. remoteName)
+                    warn(" -> Info: " .. info)
+                    warn(" -> Args:", unpack(args))
+                    warn(" -> Return:", unpack(results))
+                end)
+                return unpack(results)
+            end
+        end
+        
+        return oldNamecall(self, unpack(args))
+    end
+
+    if getgenv().UTD_HookInstalled then return end
+    getgenv().UTD_HookInstalled = true
+
+    local mt = getrawmetatable(game)
+    local oldNamecall = mt.__namecall
+    setreadonly(mt, false)
+
+    mt.__namecall = newcclosure(function(self, ...)
+        local method = getnamecallmethod()
+        local args = {...}
+        
+        if method == "InvokeServer" or method == "FireServer" then
+            if getgenv().UTD_HookLogic then
+                return getgenv().UTD_HookLogic(self, args, method, oldNamecall)
+            end
+        end
+
+        return oldNamecall(self, ...)
+    end)
+    
+    setreadonly(mt, true)
+end
+
+function MacroManager:Play()
+    if not self.CurrentMacro then return end
+    if game.PlaceId ~= 106402284955512 then
+        Window:Notify({
+            Title = "Macro",
+            Description = "Macros can only be played in-game!",
+            Lifetime = 3
+        })
+        return 
+    end
+
+    self.IsPlaying = true
+    
+    task.spawn(function()
+        local TowerService = game:GetService("ReplicatedStorage").Packages._Index["sleitnick_knit@1.7.0"].knit.Services.TowerService
+        local stepIndex = 1
+        self.PlacedHistory = {}
+        
+        while self.IsPlaying do
+            if game.PlaceId ~= 106402284955512 then
+                self.IsPlaying = false
+                break
+            end
+
+            if not self.CurrentMacro then break end
+            if stepIndex > #self.CurrentMacro then
+                self:UpdateStatus("Waiting for match to end...", "None", "None", "Match Finish")
+                
+                repeat task.wait(1) until workspace:GetAttribute("MatchFinished")
+                
+                self:UpdateStatus("Waiting for new match...", "None", "None", "Lobby/Loading")
+                
+                repeat task.wait(1) until not workspace:GetAttribute("MatchFinished")
+                
+                repeat task.wait(1) until workspace:GetAttribute("Started")
+                
+                stepIndex = 1
+                self.PlacedHistory = {} 
+                self:UpdateStatus("Restarting Macro", "None", "None", "None")
+            end
+            
+            if not workspace:GetAttribute("Started") then
+                self:UpdateStatus("Waiting for game start...", "None", "None", "Game Start")
+                task.wait(1)
+                continue
+            end
+            
+            local step = self.CurrentMacro[stepIndex]
+            local success = false
+            local totalSteps = #self.CurrentMacro
+            local statusMsg = "Step " .. stepIndex .. "/" .. totalSteps
+            
+            if step.Type == "Place" then
+                local cf = CFrame.new(
+                    step.CFrame.X, step.CFrame.Y, step.CFrame.Z,
+                    step.CFrame.R00, step.CFrame.R01, step.CFrame.R02,
+                    step.CFrame.R10, step.CFrame.R11, step.CFrame.R12,
+                    step.CFrame.R20, step.CFrame.R21, step.CFrame.R22
+                )
+                
+                local useSlot = step.Slot
+                local unitName = step.UnitName
+                
+                if unitName then
+                    local foundSlot = UnitDataManager:GetSlotFromUnitName(unitName)
+                    if foundSlot then
+                        useSlot = foundSlot
+                    end
+                end
+                
+                local display = unitName and (unitName .. " (Slot " .. useSlot .. ")") or ("Slot " .. useSlot)
+
+                local alreadyPlaced = false
+                if self.PlacedHistory then
+                    for _, placed in ipairs(self.PlacedHistory) do
+                         local dist = (Vector3.new(placed.X, 0, placed.Z) - Vector3.new(cf.Position.X, 0, cf.Position.Z)).Magnitude
+                         if dist < 1 then
+                             alreadyPlaced = true
+                             break
+                         end
+                    end
+                end
+
+                if alreadyPlaced or self:GetUnitIdAtPosition(cf) then
+                    success = true
+                    self:UpdateStatus(statusMsg, "Place", display, "Skipped (Exists)")
+                    task.wait(0.1)
+                else
+                    self:UpdateStatus(statusMsg, "Place", display, "None")
+                    local attempts = 0
+                    
+                    local requiredMoney = 0
+                    if unitName then
+                        local stats = TowerDataManager:GetTowerStats(unitName)
+                        if stats and stats.Upgrades and stats.Upgrades[1] then
+                            requiredMoney = stats.Upgrades[1].Cost or 0
+                        end
+                    end
+
+                    repeat
+                        local currentYen = LocalPlayer:GetAttribute("Yen") or 0
+                        
+                        if currentYen >= requiredMoney then
+                            local results = {TowerService.RF.PlaceUnit:InvokeServer(useSlot, cf)}
+                            if getgenv().UTD_DebugMode then
+                                warn("[UTD Debug] PlaceUnit:", unpack(results))
+                            end
+                            
+                            if results[1] then
+                                success = true
+                                if self.PlacedHistory then
+                                    table.insert(self.PlacedHistory, cf.Position)
+                                end
+                                task.wait(0.5) 
+                            else
+                                task.wait(0.5)
+                                if self:GetUnitIdAtPosition(cf) then
+                                    success = true
+                                    if self.PlacedHistory then
+                                        table.insert(self.PlacedHistory, cf.Position)
+                                    end
+                                else
+                                    self:UpdateStatus(statusMsg, "Place", display, "Retrying...")
+                                    task.wait(0.5)
+                                    attempts = attempts + 1
+                                end
+                            end
+                        else
+                            local costStr = (requiredMoney > 0) and tostring(requiredMoney) or "?"
+                            self:UpdateStatus(statusMsg, "Place", display, "Waiting for Money (" .. currentYen .. "/" .. costStr .. ")")
+                            task.wait(0.5)
+                        end
+                    until success or not self.IsPlaying or attempts > 100
+                end
+                
+            elseif step.Type == "Upgrade" then
+                local pos = Vector3.new(step.Position.X, step.Position.Y, step.Position.Z)
+                local cf = CFrame.new(pos)
+                
+                local inferredUnitName = nil
+                for i = 1, stepIndex - 1 do
+                    local prevStep = self.CurrentMacro[i]
+                    if prevStep.Type == "Place" then
+                        local prevPos = Vector3.new(prevStep.CFrame.X, prevStep.CFrame.Y, prevStep.CFrame.Z)
+                        local dist = (Vector3.new(prevPos.X, 0, prevPos.Z) - Vector3.new(pos.X, 0, pos.Z)).Magnitude
+                        if dist < 1 then
+                            local slot = prevStep.Slot
+                            if prevStep.UnitName then
+                                inferredUnitName = prevStep.UnitName
+                            else
+                                inferredUnitName = UnitDataManager:GetUnitNameFromSlot(slot)
+                            end
+                            break
+                        end
+                    end
+                end
+                
+                local attempts = 0
+                repeat
+                    local unitId = self:GetUnitIdAtPosition(cf)
+                    if unitId then
+                        local unit = workspace.Ignore.Units:FindFirstChild(unitId)
+                        local currentUpgrade = unit and unit:GetAttribute("Upgrade") or 0
+                        local unitName = unit and (unit:GetAttribute("UnitName") or unit.Name)
+                        
+                        if (not unitName or unitName:match("^{.*}$")) and inferredUnitName then
+                            unitName = inferredUnitName
+                        end
+                        
+                        local nextUpgradeCost = 0
+                        if unitName then
+                             local stats = TowerDataManager:GetTowerStats(unitName)
+                             if stats and stats.Upgrades then
+                                 local nextUp = stats.Upgrades[currentUpgrade + 1]
+                                 if nextUp then nextUpgradeCost = nextUp.Cost end
+                             end
+                        end
+
+                        local display = unitName and (unitName .. " (" .. unitId .. ")") or unitId
+                        self:UpdateStatus(statusMsg, "Upgrade", display, "None")
+                        local oldYen = LocalPlayer:GetAttribute("Yen") or 0
+                        
+                        if oldYen >= nextUpgradeCost then
+                            local results = {TowerService.RF.UpgradeUnit:InvokeServer(unitId)}
+                            if getgenv().UTD_DebugMode then
+                                warn("[UTD Debug] UpgradeUnit:", unpack(results))
+                            end
+                            
+                            task.wait(0.5)
+                            local newYen = LocalPlayer:GetAttribute("Yen") or 0
+                            
+                            if newYen < oldYen then
+                                success = true
+                            else
+                                self:UpdateStatus(statusMsg, "Upgrade", display, "Retrying...")
+                                task.wait(0.5)
+                            end
+                        else
+                            local costStr = (nextUpgradeCost > 0) and tostring(nextUpgradeCost) or "?"
+                            self:UpdateStatus(statusMsg, "Upgrade", display, "Waiting for Money (" .. oldYen .. "/" .. costStr .. ")")
+                            task.wait(0.5)
+                        end
+                    else
+                        self:UpdateStatus(statusMsg, "Upgrade", inferredUnitName or "Searching...", "Unit Not Found")
+                        task.wait(1)
+                        attempts = attempts + 1
+                    end
+                until success or not self.IsPlaying or attempts > 100
+                
+            elseif step.Type == "Sell" then
+                local pos = Vector3.new(step.Position.X, step.Position.Y, step.Position.Z)
+                local cf = CFrame.new(pos)
+                
+                local attempts = 0
+                repeat
+                    local unitId = self:GetUnitIdAtPosition(cf)
+                    if unitId then
+                        self:UpdateStatus(statusMsg, "Sell", unitId, "None")
+                        
+                        local results = {TowerService.RF.SellUnit:InvokeServer(unitId)}
+                        if getgenv().UTD_DebugMode then
+                            warn("[UTD Debug] SellUnit:", unpack(results))
+                        end
+                        
+                        success = true
+                        
+                        if self.PlacedHistory then
+                             for i, placed in ipairs(self.PlacedHistory) do
+                                 local dist = (Vector3.new(placed.X, 0, placed.Z) - Vector3.new(cf.Position.X, 0, cf.Position.Z)).Magnitude
+                                 if dist < 1 then
+                                     table.remove(self.PlacedHistory, i)
+                                     break
+                                 end
+                             end
+                        end
+                        
+                        task.wait(0.5)
+                    else
+                        self:UpdateStatus(statusMsg, "Sell", "Searching...", "Unit Not Found")
+                        task.wait(1)
+                        attempts = attempts + 1
+                    end
+                until success or not self.IsPlaying or attempts > 30
+            
+            elseif step.Type == "Ability" then
+                local pos = Vector3.new(step.Position.X, step.Position.Y, step.Position.Z)
+                local cf = CFrame.new(pos)
+                
+                local attempts = 0
+                repeat
+                    local unitId = self:GetUnitIdAtPosition(cf)
+                    if unitId then
+                        self:UpdateStatus(statusMsg, "Ability", unitId, "None")
+                        
+                        local remote = TowerService.RF:FindFirstChild(step.AbilityName) or TowerService.RE:FindFirstChild(step.AbilityName)
+                        if remote then
+                            local results = {}
+                            if remote:IsA("RemoteFunction") then
+                                results = {remote:InvokeServer(unitId)}
+                            else
+                                remote:FireServer(unitId)
+                            end
+                            
+                            if getgenv().UTD_DebugMode then
+                                warn("[UTD Debug] Ability (" .. step.AbilityName .. "):", unpack(results))
+                            end
+                            
+                            success = true
+                        else
+                             self:UpdateStatus(statusMsg, "Ability", step.AbilityName, "Remote Not Found")
+                             task.wait(1)
+                             attempts = attempts + 1
+                        end
+                        task.wait(0.5)
+                    else
+                        self:UpdateStatus(statusMsg, "Ability", "Searching...", "Unit Not Found")
+                        task.wait(1)
+                        attempts = attempts + 1
+                    end
+                until success or not self.IsPlaying or attempts > 30
+            end
+            
+            if success then
+                stepIndex = stepIndex + 1
+                task.wait(0.1)
+            end
+        end
+    end)
+end
+
+MacroManager:Initialize()
+
+local function SendGamePacket(config)
+    local ReplicatedStorage = game:GetService("ReplicatedStorage")
+    local Event = ReplicatedStorage:FindFirstChild("ByteNetReliable")
+    if not Event then return end
+
+    local isChallenge = (config.ChallengeType ~= "None" and config.ChallengeType ~= nil)
+    
+    local size = 1 
+    size = size + 2 + #config.Difficulty
+    
+    size = size + 1 
+    if isChallenge then
+        size = size + 1 
+        size = size + 2 + #config.ChallengeType
+    end
+    
+    size = size + 4 
+    size = size + 2 + #config.Mode
+    size = size + 2 + #config.Act
+    size = size + 1 
+    size = size + 2 + #config.MapName
+    
+    local b = buffer.create(size)
+    local offset = 0
+    
+    buffer.writeu8(b, offset, 39)
+    offset = offset + 1
+    
+    buffer.writeu16(b, offset, #config.Difficulty)
+    offset = offset + 2
+    buffer.writestring(b, offset, config.Difficulty)
+    offset = offset + #config.Difficulty
+    
+    if isChallenge then
+        buffer.writeu8(b, offset, 1)
+        offset = offset + 1
+        
+        buffer.writeu8(b, offset, 1)
+        offset = offset + 1
+        
+        buffer.writeu16(b, offset, #config.ChallengeType)
+        offset = offset + 2
+        buffer.writestring(b, offset, config.ChallengeType)
+        offset = offset + #config.ChallengeType
+    else
+        buffer.writeu8(b, offset, 0)
+        offset = offset + 1
+    end
+    
+    buffer.writef32(b, offset, config.Multiplier)
+    offset = offset + 4
+    
+    buffer.writeu16(b, offset, #config.Mode)
+    offset = offset + 2
+    buffer.writestring(b, offset, config.Mode)
+    offset = offset + #config.Mode
+    
+    buffer.writeu16(b, offset, #config.Act)
+    offset = offset + 2
+    buffer.writestring(b, offset, config.Act)
+    offset = offset + #config.Act
+    
+    buffer.writeu8(b, offset, config.FriendsOnly and 1 or 0)
+    offset = offset + 1
+    
+    buffer.writeu16(b, offset, #config.MapName)
+    offset = offset + 2
+    buffer.writestring(b, offset, config.MapName)
+    offset = offset + #config.MapName
+    
+    Event:FireServer(b)
+    
+    if config.AutoStart then
+        task.wait(0.5)
+        local startB = buffer.create(3)
+        buffer.writeu8(startB, 0, 42)
+        buffer.writeu8(startB, 1, 0)
+        buffer.writeu8(startB, 2, 0)
+        Event:FireServer(startB)
+    end
+end
+
+local MainGroup = Window:TabGroup()
+local MainTab = MainGroup:Tab({ Name = "Main", Image = "rbxassetid://10709782497" })
+local MacroTab = MainGroup:Tab({ Name = "Macro", Image = "rbxassetid://10723415903" })
+
+local GamemodeGroup = Window:TabGroup()
+local ChallengeTab = GamemodeGroup:Tab({ Name = "Challenge", Image = "rbxassetid://10723346953" })
+
+local SettingsGroup = Window:TabGroup()
+local PriorityTab = SettingsGroup:Tab({ Name = "Priority", Image = "rbxassetid://10734949856" })
+local MiscTab = SettingsGroup:Tab({ Name = "Misc", Image = "rbxassetid://10747373176" })
+local SettingsTab = SettingsGroup:Tab({ Name = "Settings", Image = "rbxassetid://10734950309" })
+
+local MainLeft = MainTab:Section({ Side = "Left" })
+local MainRight = MainTab:Section({ Side = "Right" })
+
+MainLeft:Header({ Text = "Mode Configuration" })
+
+local CurrentEditMode = "Story"
+local MapDropdown, DiffDropdown, ActDropdown, MultSlider, FriendsToggle
+
+UI.Dropdown(MainLeft, {
+    Name = "Select Mode to Edit",
+    Options = {"Story", "LegendStage", "VirtualRealm"},
+    Default = "Story",
+    Callback = function(val)
+        CurrentEditMode = val
+        local data = LobbySettings.Modes[val]
+        if data then
+            if MapDropdown then MapDropdown:UpdateSelection(data.Map) end
+            if DiffDropdown then DiffDropdown:UpdateSelection(data.Difficulty) end
+            if ActDropdown then ActDropdown:UpdateSelection(data.Act) end
+            if MultSlider then MultSlider:UpdateValue(data.Multiplier * 100) end
+            if FriendsToggle then FriendsToggle:UpdateState(data.FriendsOnly) end
+        end
+    end
+}, "EditModeSelector")
+
+MapDropdown = UI.Dropdown(MainLeft, {
+    Name = "Map",
+    Options = {"Final Valley", "Marine Base", "Hueco Mundo", "Frozen Stronghold", "Ninja Forest"},
+    Default = "Final Valley",
+    Callback = function(val)
+        LobbySettings.Modes[CurrentEditMode].Map = val
+    end
+}, "LobbyMap")
+
+DiffDropdown = UI.Dropdown(MainLeft, {
+    Name = "Difficulty",
+    Options = {"Easy", "Hard", "Nightmare"},
+    Default = "Easy",
+    Callback = function(val)
+        LobbySettings.Modes[CurrentEditMode].Difficulty = val
+    end
+}, "LobbyDifficulty")
+
+ActDropdown = UI.Dropdown(MainLeft, {
+    Name = "Act",
+    Options = {"1", "2", "3", "4", "5", "6", "Infinite"},
+    Default = "1",
+    Callback = function(val)
+        LobbySettings.Modes[CurrentEditMode].Act = val
+    end
+}, "LobbyAct")
+
+MultSlider = UI.Slider(MainLeft, {
+    Name = "Difficulty Meter (%)",
+    Min = 75,
+    Max = 1000,
+    Default = 100,
+    Callback = function(val)
+        LobbySettings.Modes[CurrentEditMode].Multiplier = val / 100
+    end
+}, "LobbyMultiplier")
+
+FriendsToggle = UI.Toggle(MainLeft, {
+    Name = "Friends Only",
+    Default = false,
+    Callback = function(state)
+        LobbySettings.Modes[CurrentEditMode].FriendsOnly = state
+    end
+}, "LobbyFriendsOnly")
+
+UI.Toggle(MainLeft, {
+    Name = "Auto Join",
+    Default = false,
+    Callback = function(state)
+        LobbySettings.AutoJoin = state
+    end
+}, "LobbyAutoJoin")
+
+UI.Toggle(MainLeft, {
+    Name = "Auto Start (Lobby)",
+    Default = false,
+    Callback = function(state)
+        LobbySettings.AutoStart = state
+    end
+}, "LobbyAutoStart")
+
+UI.Input(MainLeft, {
+    Name = "Join Delay (Seconds)",
+    Placeholder = "0",
+    AcceptedCharacters = "Numeric",
+    Callback = function(text)
+        LobbySettings.JoinDelay = tonumber(text) or 0
+    end
+}, "LobbyJoinDelay")
+
+local PriorityLeft = PriorityTab:Section({ Side = "Left" })
+local PriorityRight = PriorityTab:Section({ Side = "Right" })
+
+PriorityLeft:Header({ Text = "Priority System" })
+
+local PriorityOptions = {"Story", "LegendStage", "VirtualRealm", "Challenge"}
+
+for i = 1, 4 do
+    PriorityLeft:Header({ Text = "Priority " .. i })
+    
+    UI.Dropdown(PriorityLeft, {
+        Name = "Mode",
+        Options = PriorityOptions,
+        Default = "Story",
+        Callback = function(val)
+            LobbySettings.Priorities[i].Mode = val
+        end
+    }, "PriorityMode" .. i)
+end
+
+MainRight:Header({ Text = "Game Features" })
+
+UI.Toggle(MainRight, {
+    Name = "Auto Next",
+    Default = false,
+    Callback = function(state) end
+}, "AutoNext")
+
+UI.Toggle(MainRight, {
+    Name = "Auto Replay",
+    Default = false,
+    Callback = function(state) end
+}, "AutoReplay")
+
+UI.Toggle(MainRight, {
+    Name = "Auto Leave",
+    Default = false,
+    Callback = function(state) end
+}, "AutoLeave")
+
+UI.Toggle(MainRight, {
+    Name = "Auto Next/Replay/Leave",
+    Default = false,
+    Callback = function(state) end
+}, "AutoNextReplayLeave")
+
+UI.Toggle(MainRight, {
+    Name = "Auto Start",
+    Default = false,
+    Callback = function(state) end
+}, "AutoStart")
+
+UI.Toggle(MainRight, {
+    Name = "Auto Skip",
+    Default = false,
+    Callback = function(state) end
+}, "AutoSkip")
+
+UI.Toggle(MainRight, {
+    Name = "Auto Speed",
+    Default = false,
+    Callback = function(state) end
+}, "AutoSpeed")
+
+local MacroLeft = MacroTab:Section({ Side = "Left" })
+local MacroRecPlay = MacroTab:Section({ Side = "Left" })
+local MacroStatus = MacroTab:Section({ Side = "Left" })
+local MacroRight = MacroTab:Section({ Side = "Right" })
+
+MacroLeft:Header({ Text = "Macro Management" })
+
+local MacroNameInput = UI.Input(MacroLeft, {
+    Name = "Macro Name",
+    Placeholder = "Enter macro name",
+    AcceptedCharacters = "All",
+    Callback = function() end
+}, "MacroNameInput")
+
+local macroList = {}
+for name, _ in pairs(MacroManager.Macros) do
+    table.insert(macroList, name)
+end
+
+local MacroListDropdown = UI.Dropdown(MacroLeft, {
+    Name = "Select Macro",
+    Search = true,
+    Multi = false,
+    Required = false,
+    Options = macroList,
+    Default = nil,
+    Callback = function(val)
+        if val and MacroManager.Macros[val] then
+            MacroManager.CurrentMacro = MacroManager.Macros[val]
+            MacroManager:UpdateStatus("Loaded: " .. val)
+        end
+    end
+}, "MacroListDropdown")
+
+local function RefreshMacroList()
+    local list = {}
+    for name, _ in pairs(MacroManager.Macros) do
+        table.insert(list, name)
+    end
+    MacroListDropdown:ClearOptions()
+    MacroListDropdown:InsertOptions(list)
+end
+
+MacroLeft:Button({
+    Name = "Create Macro",
+    Callback = function()
+        local name = MacroNameInput.Text
+        if name and name ~= "" then
+            MacroManager:SaveMacro(name, {})
+            RefreshMacroList()
+            MacroListDropdown:UpdateSelection(name)
+            MacroManager.CurrentMacro = {}
+            MacroManager:UpdateStatus("Created: " .. name)
+        end
+    end
+})
+
+MacroLeft:Button({
+    Name = "Delete Macro",
+    Callback = function()
+        local name = MacroListDropdown.Value
+        if name then
+            MacroManager:DeleteMacro(name)
+            RefreshMacroList()
+            MacroListDropdown:UpdateSelection(nil)
+            MacroManager.CurrentMacro = nil
+            MacroManager:UpdateStatus("Deleted: " .. name)
+        end
+    end
+})
+
+MacroLeft:Button({
+    Name = "Refresh List",
+    Callback = RefreshMacroList
+})
+
+MacroRecPlay:Header({ Text = "Recording & Playback" })
+
+local RecordToggle = UI.Toggle(MacroRecPlay, {
+    Name = "Record Macro",
+    Default = false,
+    Callback = function(state)
+        MacroManager.IsRecording = state
+        if state then
+            MacroManager.RecordedSteps = {}
+            MacroManager:UpdateStatus("Recording...", "None", "None", "None")
+        else
+            if MacroManager.CurrentMacro and #MacroManager.RecordedSteps > 0 then
+                local name = MacroListDropdown.Value
+                if name then
+                    MacroManager:SaveMacro(name, MacroManager.RecordedSteps)
+                    MacroManager.CurrentMacro = MacroManager.RecordedSteps
+                    MacroManager:UpdateStatus("Saved " .. #MacroManager.RecordedSteps .. " steps", "None", "None", "None")
+                else
+                    MacroManager:UpdateStatus("No macro selected to save to!", "None", "None", "None")
+                end
+            else
+                MacroManager:UpdateStatus("Recording stopped (No steps)", "None", "None", "None")
+            end
+        end
+    end
+})
+
+UI.Toggle(MacroRecPlay, {
+    Name = "Play Macro",
+    Default = false,
+    Callback = function(state)
+        if state then
+            if MacroManager.CurrentMacro then
+                MacroManager:Play()
+            else
+                MacroManager:UpdateStatus("No macro loaded!", "None", "None", "None")
+            end
+        else
+            MacroManager.IsPlaying = false
+            MacroManager:UpdateStatus("Playback Stopped", "None", "None", "None")
+        end
+    end
+}, "MacroPlay")
+
+MacroStatus:Header({ Text = "Macro Status" })
+
+MacroManager.StatusLabel = UI.Label(MacroStatus, {
+    Text = "Status: Idle"
+})
+
+MacroManager.ActionLabel = UI.Label(MacroStatus, {
+    Text = "Action: None"
+})
+
+MacroManager.UnitLabel = UI.Label(MacroStatus, {
+    Text = "Unit: None"
+})
+
+MacroManager.WaitingLabel = UI.Label(MacroStatus, {
+    Text = "Waiting: None"
+})
+
+MacroRight:Header({ Text = "Macro Maps" })
+
+local function GetGamemodes()
+    local modes = {}
+    local rs = game:GetService("ReplicatedStorage")
+    local shared = rs:WaitForChild("Shared", 5)
+    
+    if shared then
+        local gmModule = shared:FindFirstChild("GamemodeType")
+        if gmModule then
+            local success, data = pcall(require, gmModule)
+            if success and type(data) == "table" then
+                for _, v in pairs(data) do 
+                    if not table.find(modes, v) then
+                        table.insert(modes, v) 
+                    end
+                end
+            end
+        end
+    end
+    
+    local defaults = {"Story", "Infinite", "VirtualRealm"}
+    for _, d in ipairs(defaults) do
+        if not table.find(modes, d) then
+            table.insert(modes, d)
+        end
+    end
+
+    if not table.find(modes, "Legend") then table.insert(modes, "Legend") end
+    if not table.find(modes, "Challenge") then table.insert(modes, "Challenge") end
+    
+    table.sort(modes)
+    return modes
+end
+
+local function GetMapsForMode(mode)
+    local maps = {}
+    local rs = game:GetService("ReplicatedStorage")
+    local shared = rs:WaitForChild("Shared", 5)
+    if not shared then return {} end
+    
+    local function addMapsFromFolder(folderName, includeActs)
+        local targetFolder = shared:FindFirstChild(folderName)
+        if targetFolder then
+            for _, folder in ipairs(targetFolder:GetChildren()) do
+                if folder:IsA("Folder") then
+                    if includeActs then
+                        local acts = {}
+                        for _, file in ipairs(folder:GetChildren()) do
+                            if file:IsA("ModuleScript") then
+                                local name = file.Name:gsub("%.lua", "")
+                                if tonumber(name) then
+                                    table.insert(acts, tonumber(name))
+                                end
+                            end
+                        end
+                        table.sort(acts)
+                        for _, act in ipairs(acts) do
+                            table.insert(maps, folder.Name .. " - Act " .. act)
+                        end
+                    else
+                        if not table.find(maps, folder.Name) then
+                            table.insert(maps, folder.Name)
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    if mode == "Story" then
+        addMapsFromFolder("Waves", true)
+    elseif mode == "VirtualRealm" then
+        addMapsFromFolder("VirtualRealm", true)
+    elseif mode == "Legend" then
+        addMapsFromFolder("LegendStages", true)
+    elseif mode == "Infinite" then
+        local waves = shared:FindFirstChild("Waves")
+        if waves then
+            for _, folder in ipairs(waves:GetChildren()) do
+                if folder:IsA("Folder") then
+                    if folder:FindFirstChild("Infinite") or folder:FindFirstChild("Infinite.lua") then
+                        table.insert(maps, folder.Name)
+                    end
+                end
+            end
+        end
+    elseif mode == "Challenge" then
+        local waves = shared:FindFirstChild("Waves")
+        if waves then
+            for _, folder in ipairs(waves:GetChildren()) do
+                if folder:IsA("Folder") then
+                    if not table.find(maps, folder.Name) then
+                        table.insert(maps, folder.Name)
+                    end
+                end
+            end
+        end
+        addMapsFromFolder("VirtualRealm", false)
+        addMapsFromFolder("LegendStages", false)
+    end
+    
+    table.sort(maps)
+    return maps
+end
+
+local Gamemodes = GetGamemodes()
+local SelectedMode = Gamemodes[1] or "Story"
+local CurrentMaps = GetMapsForMode(SelectedMode)
+local SelectedMap = CurrentMaps[1] or "None"
+
+local AssignedMacroLabel = UI.Label(MacroRight, { Text = "Current: None" })
+
+local function UpdateAssignedLabel()
+    local assigned = "None"
+    if MacroManager.MacroMaps[SelectedMode] and 
+       MacroManager.MacroMaps[SelectedMode][SelectedMap] then
+        assigned = MacroManager.MacroMaps[SelectedMode][SelectedMap]
+    end
+    AssignedMacroLabel:UpdateName("Current: " .. assigned)
+end
+
+local MapDropdown
+
+UI.Dropdown(MacroRight, {
+    Name = "Select Gamemode",
+    Options = Gamemodes,
+    Default = SelectedMode,
+    Callback = function(val)
+        SelectedMode = val
+        CurrentMaps = GetMapsForMode(SelectedMode)
+        SelectedMap = CurrentMaps[1] or "None"
+        
+        if MapDropdown then
+            MapDropdown:ClearOptions()
+            MapDropdown:InsertOptions(CurrentMaps)
+            MapDropdown:UpdateSelection(SelectedMap)
+        end
+        UpdateAssignedLabel()
+    end
+})
+
+MapDropdown = UI.Dropdown(MacroRight, {
+    Name = "Select Map",
+    Options = CurrentMaps,
+    Default = SelectedMap,
+    Callback = function(val)
+        SelectedMap = val
+        UpdateAssignedLabel()
+    end
+})
+
+local mapMacroList = {}
+for name, _ in pairs(MacroManager.Macros) do
+    table.insert(mapMacroList, name)
+end
+
+local MapMacroDropdown = UI.Dropdown(MacroRight, {
+    Name = "Assign Macro",
+    Options = mapMacroList,
+    Default = nil,
+    Callback = function(val)
+        if val then
+            if not MacroManager.MacroMaps[SelectedMode] then MacroManager.MacroMaps[SelectedMode] = {} end
+            
+            MacroManager.MacroMaps[SelectedMode][SelectedMap] = val
+            UpdateAssignedLabel()
+            
+            GlobalConfig.Data.MacroMaps = MacroManager.MacroMaps
+            GlobalConfig:Save()
+        end
+    end
+})
+
+local OldRefresh = RefreshMacroList
+RefreshMacroList = function()
+    if OldRefresh then OldRefresh() end
+    if MapMacroDropdown then
+        local list = {}
+        for name, _ in pairs(MacroManager.Macros) do
+            table.insert(list, name)
+        end
+        MapMacroDropdown:ClearOptions()
+        MapMacroDropdown:InsertOptions(list)
+    end
+end
+
+task.spawn(function()
+    local hasAutoLoaded = false
+    while true do
+        task.wait(1)
+        if game.PlaceId == 106402284955512 then
+            local started = workspace:GetAttribute("Started")
+            if started and not hasAutoLoaded then
+                local mode = workspace:GetAttribute("Category")
+                local mapName = workspace:GetAttribute("Map") or workspace:GetAttribute("MapName")
+                local act = workspace:GetAttribute("Act")
+                
+                if mode and mapName then
+                    local mapKey = mapName
+                    
+                    if mode == "Story" or mode == "VirtualRealm" or mode == "Legend" then
+                        if act then
+                            mapKey = mapName .. " - Act " .. act
+                        end
+                    elseif mode == "Infinite" or mode == "Challenge" then
+                        mapKey = mapName
+                    end
+                    
+                    if MacroManager.MacroMaps[mode] and MacroManager.MacroMaps[mode][mapKey] then
+                        local macroName = MacroManager.MacroMaps[mode][mapKey]
+                        if MacroManager.Macros[macroName] then
+                            MacroManager.CurrentMacro = MacroManager.Macros[macroName]
+                            MacroManager:UpdateStatus("Auto-Loaded: " .. macroName)
+                            hasAutoLoaded = true
+                        end
+                    end
+                end
+            elseif not started then
+                hasAutoLoaded = false
+            end
+        end
+    end
+end)
+
+local ChallengeLeft = ChallengeTab:Section({ Side = "Left" })
+
+ChallengeLeft:Header({ Text = "Challenge Settings" })
+
+UI.Toggle(ChallengeLeft, {
+    Name = "Auto Daily",
+    Default = false,
+    Callback = function(state)
+        LobbySettings.Challenge.Daily = state
+    end
+}, "AutoDaily")
+
+UI.Toggle(ChallengeLeft, {
+    Name = "Auto Half Hour",
+    Default = false,
+    Callback = function(state)
+        LobbySettings.Challenge.HalfHour = state
+    end
+}, "AutoHalfHour")
+
+UI.Toggle(ChallengeLeft, {
+    Name = "Auto Special",
+    Default = false,
+    Callback = function(state)
+        LobbySettings.Challenge.Special = state
+    end
+}, "AutoSpecial")
+
+UI.Toggle(ChallengeLeft, {
+    Name = "Auto Start (Challenge)",
+    Default = false,
+    Callback = function(state)
+        LobbySettings.Challenge.AutoStart = state
+    end
+}, "AutoStartChallenge")
+
+UI.Input(ChallengeLeft, {
+    Name = "Join Delay (Seconds)",
+    Placeholder = "0",
+    AcceptedCharacters = "Numeric",
+    Callback = function(text)
+        LobbySettings.Challenge.JoinDelay = tonumber(text) or 0
+    end
+}, "ChallengeJoinDelay")
+
+ChallengeLeft:Header({ Text = "Info" })
+ChallengeLeft:Label({ Text = "Enable 'Challenge' in the Priority Tab!" })
+
+local MiscLeft = MiscTab:Section({ Side = "Left" })
+local MiscRight = MiscTab:Section({ Side = "Right" })
+
+MiscLeft:Header({ Text = "Automation" })
+
+UI.Toggle(MiscLeft, {
+    Name = "Debug Mode",
+    Default = false,
+    Callback = function(state)
+        getgenv().UTD_DebugMode = state
+        if state then
+            warn("[UTD] Debug Mode Enabled - Check Console (F9) for logs")
+        end
+    end
+}, "DebugMode")
+
+UI.Toggle(MiscLeft, {
+    Name = "Auto Execute",
+    Default = false,
+    Callback = function(state)
+        if state and queue_on_teleport then
+            queue_on_teleport('loadstring(game:HttpGet("https://byorlofficial.live/utd"))()')
+        end
+    end
+}, "AutoExecute")
+
+UI.Toggle(MiscLeft, {
+    Name = "Auto Hide UI on Load",
+    Default = false,
+    Callback = function(state) end
+}, "AutoHideUI")
+
+UI.Toggle(MiscLeft, {
+    Name = "Place Anywhere",
+    Default = false,
+    Callback = function(state)
+        getgenv().UTD_PlaceAnywhere = state
+    end
+}, "PlaceAnywhere")
+
+UI.Toggle(MiscLeft, {
+    Name = "Hide Username",
+    Default = false,
+    Callback = function(state)
+        getgenv().UTD_HideUsername = state
+        
+        local function updateName(char)
+            if not char then return end
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                local bb = hrp:FindFirstChild("BillboardGui")
+                if bb then
+                    local nameLabel = bb:FindFirstChild("PlayerName")
+                    if nameLabel then
+                        if nameLabel:IsA("TextLabel") then
+                            nameLabel.Visible = not state
+                        elseif nameLabel:FindFirstChild("PlayerName") then
+                            nameLabel.PlayerName.Visible = not state
+                        end
+                    end
+                end
+            end
+        end
+        
+        updateName(LocalPlayer.Character)
+        
+        if state then
+            if not getgenv().UTD_HideNameConn then
+                getgenv().UTD_HideNameConn = LocalPlayer.CharacterAdded:Connect(function(char)
+                    task.wait(1)
+                    if getgenv().UTD_HideUsername then
+                        updateName(char)
+                    end
+                end)
+            end
+        else
+            if getgenv().UTD_HideNameConn then
+                getgenv().UTD_HideNameConn:Disconnect()
+                getgenv().UTD_HideNameConn = nil
+            end
+        end
+    end
+}, "HideUsername")
+
+
+local hasSetSpeed = false
+task.spawn(function()
+    while true do
+        task.wait(1)
+        if getgenv().UTD_Unload == nil then break end
+        
+        if game.PlaceId ~= 106402284955512 then continue end 
+        
+        local WaveService = game:GetService("ReplicatedStorage").Packages._Index["sleitnick_knit@1.7.0"].knit.Services.WaveService
+        if not WaveService then continue end
+
+        if ConfigManager.Elements["AutoStart"] and ConfigManager.Elements["AutoStart"].Element.State then
+            if workspace:GetAttribute("Started") == false then
+                WaveService.RF.Vote:InvokeServer(true)
+            end
+        end
+
+        if ConfigManager.Elements["AutoSkip"] and ConfigManager.Elements["AutoSkip"].Element.State then
+            local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
+            if PlayerGui then
+                local GameUI = PlayerGui:FindFirstChild("GameUI")
+                if GameUI then
+                    local voteLabel = GameUI:FindFirstChild("HUD") and GameUI.HUD:FindFirstChild("Vote") and GameUI.HUD.Vote:FindFirstChild("TextContainer") and GameUI.HUD.Vote.TextContainer:FindFirstChild("Label")
+                    if voteLabel and voteLabel.Text == "Vote Skip :" then
+                        WaveService.RF.Vote:InvokeServer(true)
+                    end
+                end
+            end
+        end
+
+        if ConfigManager.Elements["AutoSpeed"] and ConfigManager.Elements["AutoSpeed"].Element.State then
+            local currentSpeed = workspace:GetAttribute("Speed")
+            local maxSpeed = workspace:GetAttribute("MaxSpeed") or 1.5
+            
+            if currentSpeed and currentSpeed < maxSpeed then
+                WaveService.RE.SetSpeed:FireServer(maxSpeed)
+            end
+        end
+
+        local GameUI = LocalPlayer:FindFirstChild("PlayerGui") and LocalPlayer.PlayerGui:FindFirstChild("GameUI")
+        if workspace:GetAttribute("MatchFinished") then
+            if MacroManager.IsRecording and RecordToggle then
+                RecordToggle:UpdateState(false)
+            end
+        end
+
+        if workspace:GetAttribute("MatchFinished") == true then
+            if ConfigManager.Elements["AutoNextReplayLeave"] and ConfigManager.Elements["AutoNextReplayLeave"].Element.State then
+                local category = workspace:GetAttribute("Category")
+                if category == "Story" then
+                    WaveService.RE.NextMap:FireServer()
+                else
+                    WaveService.RE.VoteReplay:FireServer()
+                end
+            else
+                if ConfigManager.Elements["AutoNext"] and ConfigManager.Elements["AutoNext"].Element.State then
+                     WaveService.RE.NextMap:FireServer()
+                end
+                
+                if ConfigManager.Elements["AutoReplay"] and ConfigManager.Elements["AutoReplay"].Element.State then
+                    WaveService.RE.VoteReplay:FireServer()
+                end
+                
+                if ConfigManager.Elements["AutoLeave"] and ConfigManager.Elements["AutoLeave"].Element.State then
+                    WaveService.RE.ToLobby:FireServer()
+                end
+            end
+        end
+    end
+end)
+
+task.spawn(function()
+    local Mouse = LocalPlayer:GetMouse()
+    
+    local currentGhost = nil
+    local lastGhostData = {Name = nil, Rotation = 0, Time = 0}
+    
+    local function setupGhostTracking()
+        local ghostFolder = workspace:WaitForChild("Ignore", 5) and workspace.Ignore:WaitForChild("GhostUnits", 5)
+        if ghostFolder then
+            ghostFolder.ChildAdded:Connect(function(child)
+                currentGhost = child
+            end)
+            
+            ghostFolder.ChildRemoved:Connect(function(child)
+                if currentGhost == child then
+                    lastGhostData.Name = child.Name
+                    lastGhostData.Time = tick()
+                    local primary = child.PrimaryPart or child:FindFirstChild("HumanoidRootPart")
+                    if primary then
+                        local _, y, _ = primary.CFrame:ToOrientation()
+                        lastGhostData.Rotation = y
+                    end
+                    currentGhost = nil
+                end
+            end)
+        end
+    end
+    setupGhostTracking()
+
+    local connection
+    connection = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+        if getgenv().UTD_Unload == nil then 
+            if connection then connection:Disconnect() end
+            return 
+        end
+        
+        if game.PlaceId ~= 106402284955512 then return end
+        if not getgenv().UTD_PlaceAnywhere then return end
+        
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            local unitNameToPlace = nil
+            local rotationToPlace = 0
+            
+            if currentGhost and currentGhost.Parent then
+                unitNameToPlace = currentGhost.Name
+                local primary = currentGhost.PrimaryPart or currentGhost:FindFirstChild("HumanoidRootPart")
+                if primary then
+                    local _, y, _ = primary.CFrame:ToOrientation()
+                    rotationToPlace = y
+                end
+            elseif (tick() - lastGhostData.Time) < 0.5 and lastGhostData.Name then
+                unitNameToPlace = lastGhostData.Name
+                rotationToPlace = lastGhostData.Rotation
+                if getgenv().UTD_DebugMode then
+                    warn("[UTD] Place Anywhere: Using cached ghost unit data for " .. tostring(unitNameToPlace))
+                end
+            else
+                local ghostFolder = workspace:FindFirstChild("Ignore") and workspace.Ignore:FindFirstChild("GhostUnits")
+                if ghostFolder then
+                    local children = ghostFolder:GetChildren()
+                    if children[1] then
+                        unitNameToPlace = children[1].Name
+                        local primary = children[1].PrimaryPart or children[1]:FindFirstChild("HumanoidRootPart")
+                        if primary then
+                            local _, y, _ = primary.CFrame:ToOrientation()
+                            rotationToPlace = y
+                        end
+                    end
+                end
+            end
+            
+            if unitNameToPlace then
+                local slot = UnitDataManager:GetSlotFromUnitName(unitNameToPlace)
+                
+                if slot then
+                    local targetCFrame = Mouse.Hit
+                    targetCFrame = CFrame.new(targetCFrame.Position) * CFrame.Angles(0, rotationToPlace, 0)
+                    
+                    task.wait(0.4)
+                    
+                    local alreadyPlaced = false
+                    local unitsFolder = workspace:FindFirstChild("Ignore") and workspace.Ignore:FindFirstChild("Units")
+                    if unitsFolder then
+                        for _, unit in ipairs(unitsFolder:GetChildren()) do
+                            local hrp = unit:FindFirstChild("HumanoidRootPart")
+                            if hrp then
+                                local dist = (Vector3.new(hrp.Position.X, 0, hrp.Position.Z) - Vector3.new(targetCFrame.Position.X, 0, targetCFrame.Position.Z)).Magnitude
+                                if dist < 1 then
+                                    alreadyPlaced = true
+                                    break
+                                end
+                            end
+                        end
+                    end
+                    
+                    if not alreadyPlaced then
+                        local TowerService = game:GetService("ReplicatedStorage").Packages._Index["sleitnick_knit@1.7.0"].knit.Services.TowerService
+                        TowerService.RF.PlaceUnit:InvokeServer(slot, targetCFrame)
+                        
+                        if getgenv().UTD_DebugMode then
+                            warn("[UTD] Place Anywhere: Placed " .. unitNameToPlace .. " (Slot " .. slot .. ")")
+                        end
+                    elseif getgenv().UTD_DebugMode then
+                        warn("[UTD] Place Anywhere: Skipped (Game placed unit normally)")
+                    end
+                else
+                     if getgenv().UTD_DebugMode then
+                        warn("[UTD] Place Anywhere: Could not find slot for " .. tostring(unitNameToPlace))
+                    end
+                end
+            end
+        end
+    end)
+end)
+
+local isJoining = false
+
+task.spawn(function()
+    while true do
+        task.wait(2)
+        if getgenv().UTD_Unload == nil then break end
+        
+        if game.PlaceId == 133410800847665 then 
+            if isJoining then continue end
+
+            local config = nil
+            local delay = 0
+            
+            for _, priority in ipairs(LobbySettings.Priorities) do
+                local mode = priority.Mode
+                
+                if mode == "Challenge" then
+                    if LobbySettings.Challenge.Daily then
+                        config = {
+                            Difficulty = "Easy",
+                            ChallengeType = "Daily",
+                            Mode = "Challenge",
+                            Multiplier = 1.0,
+                            Act = "5",
+                            MapName = "Marine Base",
+                            FriendsOnly = false,
+                            AutoStart = LobbySettings.Challenge.AutoStart
+                        }
+                        delay = LobbySettings.Challenge.JoinDelay
+                        break
+                    elseif LobbySettings.Challenge.HalfHour then
+                        config = {
+                            Difficulty = "Easy",
+                            ChallengeType = "HalfHour",
+                            Mode = "Challenge",
+                            Multiplier = 1.0,
+                            Act = "5",
+                            MapName = "Marine Base",
+                            FriendsOnly = false,
+                            AutoStart = LobbySettings.Challenge.AutoStart
+                        }
+                        delay = LobbySettings.Challenge.JoinDelay
+                        break
+                    elseif LobbySettings.Challenge.Special then
+                        config = {
+                            Difficulty = "Easy",
+                            ChallengeType = "Special",
+                            Mode = "Challenge",
+                            Multiplier = 1.0,
+                            Act = "1",
+                            MapName = "Frozen Stronghold",
+                            FriendsOnly = false,
+                            AutoStart = LobbySettings.Challenge.AutoStart
+                        }
+                        delay = LobbySettings.Challenge.JoinDelay
+                        break
+                    end
+                elseif LobbySettings.Modes[mode] then
+                    if LobbySettings.AutoJoin then
+                        local modeConfig = LobbySettings.Modes[mode]
+                        config = {
+                            Difficulty = modeConfig.Difficulty,
+                            ChallengeType = "None",
+                            Mode = mode,
+                            Multiplier = modeConfig.Multiplier,
+                            Act = modeConfig.Act == "Infinite" and "Infinite" or modeConfig.Act,
+                            MapName = modeConfig.Map,
+                            FriendsOnly = modeConfig.FriendsOnly,
+                            AutoStart = LobbySettings.AutoStart
+                        }
+                        delay = LobbySettings.JoinDelay
+                        
+                        if config.Act == "Infinite" then
+                            config.Mode = "Story"
+                        end
+                        break
+                    end
+                end
+            end
+
+            if not config and LobbySettings.AutoJoin then
+                local mode = CurrentEditMode
+                if LobbySettings.Modes[mode] then
+                    local modeConfig = LobbySettings.Modes[mode]
+                    config = {
+                        Difficulty = modeConfig.Difficulty,
+                        ChallengeType = "None",
+                        Mode = mode,
+                        Multiplier = modeConfig.Multiplier,
+                        Act = modeConfig.Act == "Infinite" and "Infinite" or modeConfig.Act,
+                        MapName = modeConfig.Map,
+                        FriendsOnly = modeConfig.FriendsOnly,
+                        AutoStart = LobbySettings.AutoStart
+                    }
+                    delay = LobbySettings.JoinDelay
+                    
+                    if config.Act == "Infinite" then
+                        config.Mode = "Story"
+                    end
+                end
+            end
+            
+            if config then
+                isJoining = true
+                if delay > 0 then
+                    Window:Notify({
+                        Title = "Auto Join",
+                        Description = "Joining in " .. delay .. " seconds...",
+                        Lifetime = delay
+                    })
+                    task.wait(delay)
+                end
+
+                SendGamePacket(config)
+                
+                task.delay(10, function()
+                    if game.PlaceId == 133410800847665 then
+                        isJoining = false
+                    end
+                end)
+            end
+        end
+    end
+end)
+
+local SettingsLeft = SettingsTab:Section({ Side = "Left" })
+local SettingsRight = SettingsTab:Section({ Side = "Right" })
+
+SettingsLeft:Header({ Text = "Config Management" })
+
+local ConfigNameInput = UI.Input(SettingsLeft, {
+    Name = "Config Name",
+    Placeholder = "Enter config name",
+    AcceptedCharacters = "All",
+    Callback = function() end
+}, "ConfigNameInput")
+
+local configs = ConfigManager:GetConfigs()
+local ConfigListDropdown = UI.Dropdown(SettingsLeft, {
+    Name = "Config List",
+    Search = true,
+    Multi = false,
+    Required = false,
+    Options = configs,
+    Default = #configs > 0 and 1 or nil,
+    Callback = function(val)
+        ConfigManager.CurrentConfig = val
+    end
+}, "ConfigListDropdown")
+
+local function RefreshConfigList()
+    local currentConfigs = ConfigManager:GetConfigs()
+    ConfigListDropdown:ClearOptions()
+    ConfigListDropdown:InsertOptions(currentConfigs)
+    
+    if table.find(currentConfigs, ConfigManager.CurrentConfig) then
+        ConfigListDropdown:UpdateSelection(ConfigManager.CurrentConfig)
+    elseif #currentConfigs > 0 then
+        ConfigManager.CurrentConfig = currentConfigs[1]
+        ConfigListDropdown:UpdateSelection(currentConfigs[1])
+    else
+        ConfigListDropdown:UpdateSelection(nil)
+    end
+end
+
+SettingsLeft:Button({
+    Name = "Create Config",
+    Callback = function()
+        local name = ConfigNameInput.Text
+        if name and name ~= "" then
+            ConfigManager:Save(name)
+            ConfigManager.CurrentConfig = name
+            RefreshConfigList()
+            Window:Notify({
+                Title = "Config",
+                Description = "Created config: " .. name,
+                Lifetime = 3
+            })
+        end
+    end
+})
+
+SettingsLeft:Button({
+    Name = "Overwrite Config",
+    Callback = function()
+        ConfigManager:Save()
+        Window:Notify({
+            Title = "Config",
+            Description = "Saved config: " .. ConfigManager.CurrentConfig,
+            Lifetime = 3
+        })
+    end
+})
+
+SettingsLeft:Button({
+    Name = "Load Config",
+    Callback = function()
+        ConfigManager:Load(ConfigManager.CurrentConfig)
+        Window:Notify({
+            Title = "Config",
+            Description = "Loaded config: " .. ConfigManager.CurrentConfig,
+            Lifetime = 3
+        })
+    end
+})
+
+SettingsLeft:Button({
+    Name = "Delete Config",
+    Callback = function()
+        Window:Dialog({
+            Title = "Delete Config",
+            Description = "Are you sure you want to delete " .. ConfigManager.CurrentConfig .. "?",
+            Buttons = {
+                {
+                    Name = "Yes",
+                    Callback = function()
+                        ConfigManager:Delete(ConfigManager.CurrentConfig)
+                        RefreshConfigList()
+                        Window:Notify({
+                            Title = "Config",
+                            Description = "Deleted config",
+                            Lifetime = 3
+                        })
+                    end
+                },
+                {
+                    Name = "No"
+                }
+            }
+        })
+    end
+})
+
+SettingsLeft:Button({
+    Name = "Refresh List",
+    Callback = RefreshConfigList
+})
+
+SettingsLeft:Toggle({
+    Name = "Auto Save Configs",
+    Default = GlobalConfig.Data.AutoSave,
+    Callback = function(state)
+        GlobalConfig.Data.AutoSave = state
+        GlobalConfig:Save()
+    end
+})
+
+SettingsRight:Header({ Text = "Auto Load" })
+
+SettingsRight:Button({
+    Name = "Set as Auto Load",
+    Callback = function()
+        ConfigManager:SetAutoLoad(ConfigManager.CurrentConfig)
+        Window:Notify({
+            Title = "Config",
+            Description = "Set " .. ConfigManager.CurrentConfig .. " as auto load",
+            Lifetime = 3
+        })
+    end
+})
+
+SettingsRight:Header({ Text = "UI Settings" })
+
+SettingsRight:Toggle({
+    Name = "Enable Notifications",
+    Default = true,
+    Callback = function(state)
+        Window:SetNotificationsState(state)
+    end
+})
+
+SettingsRight:Dropdown({
+    Name = "UI Scale",
+    Search = false,
+    Multi = false,
+    Required = true,
+    Options = {"0.5", "0.75", "1", "1.25", "1.5", "1.75", "2"},
+    Default = tostring(GlobalConfig.Data.UIScale),
+    Callback = function(val)
+        local scale = tonumber(val)
+        if scale then
+            Window:SetScale(scale)
+            GlobalConfig.Data.UIScale = scale
+            GlobalConfig:Save()
+        end
+    end
+})
+
+local function CreateMobileToggle()
+    local ToggleGui = Instance.new("ScreenGui")
+    ToggleGui.Name = "ALS_Fluent_Toggle"
+    ToggleGui.ResetOnSpawn = false
+    ToggleGui.IgnoreGuiInset = true
+    ToggleGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    ToggleGui.Parent = game:GetService("CoreGui")
+    
+    local ToggleButton = Instance.new("TextButton")
+    ToggleButton.Name = "ToggleButton"
+    ToggleButton.Size = UDim2.new(0, 100, 0, 100)
+    ToggleButton.Position = UDim2.new(1, -10, 0.5, 0)
+    ToggleButton.AnchorPoint = Vector2.new(1, 0.5)
+    ToggleButton.BackgroundColor3 = Color3.fromRGB(85, 85, 100)
+    ToggleButton.BorderSizePixel = 0
+    ToggleButton.Text = "Byorl\nLast\nStand"
+    ToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    ToggleButton.TextSize = 16
+    ToggleButton.Font = Enum.Font.GothamBold
+    ToggleButton.Active = true
+    ToggleButton.Draggable = true
+    ToggleButton.Parent = ToggleGui
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 12)
+    corner.Parent = ToggleButton
+    
+    local gradient = Instance.new("UIGradient")
+    gradient.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(100, 100, 120)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(75, 75, 90))
+    })
+    gradient.Rotation = 90
+    gradient.Parent = ToggleButton
+    
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = Color3.fromRGB(130, 130, 160)
+    stroke.Thickness = 2
+    stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    stroke.Parent = ToggleButton
+    
+    local shadow = Instance.new("ImageLabel")
+    shadow.Name = "Shadow"
+    shadow.BackgroundTransparency = 1
+    shadow.Position = UDim2.new(0.5, 0, 0.5, 0)
+    shadow.Size = UDim2.new(1, 20, 1, 20)
+    shadow.AnchorPoint = Vector2.new(0.5, 0.5)
+    shadow.Image = "rbxassetid://5554236805"
+    shadow.ImageColor3 = Color3.fromRGB(0, 0, 0)
+    shadow.ImageTransparency = 0.5
+    shadow.ZIndex = -1
+    shadow.Parent = ToggleButton
+    
+    ToggleButton.MouseEnter:Connect(function()
+        game:GetService("TweenService"):Create(ToggleButton, TweenInfo.new(0.2), {
+            BackgroundColor3 = Color3.fromRGB(105, 105, 125)
+        }):Play()
+        game:GetService("TweenService"):Create(stroke, TweenInfo.new(0.2), {
+            Color = Color3.fromRGB(150, 150, 190)
+        }):Play()
+    end)
+    
+    ToggleButton.MouseLeave:Connect(function()
+        game:GetService("TweenService"):Create(ToggleButton, TweenInfo.new(0.2), {
+            BackgroundColor3 = Color3.fromRGB(85, 85, 100)
+        }):Play()
+        game:GetService("TweenService"):Create(stroke, TweenInfo.new(0.2), {
+            Color = Color3.fromRGB(130, 130, 160)
+        }):Play()
+    end)
+
+    ToggleButton.MouseButton1Click:Connect(function()
+        Window:SetState(not Window:GetState())
+    end)
+end
+
+UI.Toggle(SettingsRight, {
+    Name = "Mobile UI Button",
+    Default = true,
+    Callback = function(state)
+        local gui = game:GetService("CoreGui"):FindFirstChild("ALS_Fluent_Toggle")
+        if state then
+            if not gui then
+                CreateMobileToggle()
+            end
+        else
+            if gui then
+                gui:Destroy()
+            end
+        end
+    end
+}, "Mobile UI Button")
+
+if UserInputService.TouchEnabled then
+    if not game:GetService("CoreGui"):FindFirstChild("ALS_Fluent_Toggle") then
+        CreateMobileToggle()
+    end
+end
+
+getgenv().UTD_Unload = function()
+    if Window then Window:Unload() end
+    local mobileToggle = game:GetService("CoreGui"):FindFirstChild("ALS_Fluent_Toggle")
+    if mobileToggle then mobileToggle:Destroy() end
+    
+    local oldLib = game:GetService("CoreGui"):FindFirstChild("MacLib")
+    if oldLib then oldLib:Destroy() end
+
+    getgenv().UTD_Unload = nil
+end
+
+SettingsRight:Button({
+    Name = "Unload Script",
+    Callback = function()
+        getgenv().UTD_Unload()
+    end
+})
+
+ConfigManager:Initialize()
+
+task.spawn(function()
+    task.wait(1)
+    if ConfigManager.Elements["MacroListDropdown"] then
+        local val = ConfigManager.Elements["MacroListDropdown"].Element.Value
+        if val and MacroManager.Macros[val] then
+            MacroManager.CurrentMacro = MacroManager.Macros[val]
+            MacroManager:UpdateStatus("Loaded: " .. val, "None", "None", "None")
+        end
+    end
+    
+    if ConfigManager.Elements["Mobile UI Button"] then
+        local state = ConfigManager.Elements["Mobile UI Button"].Element.State
+        if state then
+            if not game:GetService("CoreGui"):FindFirstChild("ALS_Fluent_Toggle") then
+                CreateMobileToggle()
+            end
+        end
+    end
+
+    if ConfigManager.Elements["AutoHideUI"] then
+        local state = ConfigManager.Elements["AutoHideUI"].Element.State
+        if state then
+            Window:SetState(false)
+        end
+    end
+end)
+
+if not GlobalConfig.Data.HasJoinedDiscord then
+    Window:Dialog({
+        Title = "Join Our Discord!",
+        Description = "Have you joined the Byorl Last Stand Discord server? Get updates, support, and connect with the community!",
+        Buttons = {
+            {
+                Name = "Yes, I'm in!",
+                Callback = function()
+                    GlobalConfig.Data.HasJoinedDiscord = true
+                    GlobalConfig:Save()
+                    Window:Notify({
+                        Title = "Byorl Last Stand",
+                        Description = "Awesome! Thanks for being part of the community!",
+                        Lifetime = 3
+                    })
+                end,
+            },
+            {
+                Name = "Not yet",
+                Callback = function()
+                    GlobalConfig.Data.HasJoinedDiscord = true
+                    GlobalConfig:Save()
+                    
+                    if setclipboard then
+                        setclipboard("https://discord.gg/V3WcdHpd3J")
+                    end
+                    
+                    Window:Notify({
+                        Title = "Byorl Last Stand",
+                        Description = "Discord link copied! Opening in browser...",
+                        Lifetime = 5
+                    })
+                    
+                    task.wait(0.5)
+                    
+                    local success = pcall(function()
+                        if request then
+                            request({
+                                Url = "https://discord.gg/V3WcdHpd3J",
+                                Method = "GET"
+                            })
+                        end
+                    end)
+                    
+                    if not success then
+                        Window:Notify({
+                            Title = "Byorl Last Stand",
+                            Description = "Link copied to clipboard: discord.gg/V3WcdHpd3J",
+                            Lifetime = 5
+                        })
+                    end
+                end,
+            }
+        }
+    })
+end
