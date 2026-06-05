@@ -98,38 +98,8 @@ if BF then
 	repeat wait() until game.Players.LocalPlayer:FindFirstChild("PlayerGui") or (tick()-_t0)>15
 	_t0 = tick()
 	repeat wait() until game.Players.LocalPlayer.PlayerGui:FindFirstChild("Main") or (tick()-_t0)>15
-	if not game.Players.LocalPlayer.PlayerGui:FindFirstChild("Main") then
-		warn("[BananaHub] ไม่พบ PlayerGui.Main — ข้าม Team Select")
-	else
-	print("[BananaHub] passed gates, starting team select...")
-	repeat wait()
-		if game:GetService("Players").LocalPlayer.PlayerGui:WaitForChild("Main").ChooseTeam.Visible == true then
-			if getgenv().Setting["Join Team"] == "Pirate" then
-				game:GetService("Players")["LocalPlayer"].PlayerGui.Main.ChooseTeam.Container.Pirates.Frame.ViewportFrame.TextButton.Size = UDim2.new(0, 10000, 0, 10000)
-				game:GetService("Players")["LocalPlayer"].PlayerGui.Main.ChooseTeam.Container.Pirates.Frame.ViewportFrame.TextButton.Position = UDim2.new(-4, 0, -5, 0)
-				game:GetService("Players")["LocalPlayer"].PlayerGui.Main.ChooseTeam.Container.Pirates.Frame.ViewportFrame.TextButton.BackgroundTransparency = 1
-				wait(.5)
-				game:GetService'VirtualUser':Button1Down(Vector2.new(99,99))
-				game:GetService'VirtualUser':Button1Up(Vector2.new(99,99))
-			elseif getgenv().Setting["Join Team"] == "Marine" then
-				game:GetService("Players")["LocalPlayer"].PlayerGui.Main.ChooseTeam.Container.Marines.Frame.ViewportFrame.TextButton.Size = UDim2.new(0, 10000, 0, 10000)
-				game:GetService("Players")["LocalPlayer"].PlayerGui.Main.ChooseTeam.Container.Marines.Frame.ViewportFrame.TextButton.Position = UDim2.new(-4, 0, -5, 0)
-				game:GetService("Players")["LocalPlayer"].PlayerGui.Main.ChooseTeam.Container.Marines.Frame.ViewportFrame.TextButton.BackgroundTransparency = 1
-				wait(.5)
-				game:GetService'VirtualUser':Button1Down(Vector2.new(99,99))
-				game:GetService'VirtualUser':Button1Up(Vector2.new(99,99))
-			else
-				game:GetService("Players")["LocalPlayer"].PlayerGui.Main.ChooseTeam.Container.Pirates.Frame.ViewportFrame.TextButton.Size = UDim2.new(0, 10000, 0, 10000)
-				game:GetService("Players")["LocalPlayer"].PlayerGui.Main.ChooseTeam.Container.Pirates.Frame.ViewportFrame.TextButton.Position = UDim2.new(-4, 0, -5, 0)
-				game:GetService("Players")["LocalPlayer"].PlayerGui.Main.ChooseTeam.Container.Pirates.Frame.ViewportFrame.TextButton.BackgroundTransparency = 1
-				wait(.5)
-				game:GetService'VirtualUser':Button1Down(Vector2.new(99,99))
-				game:GetService'VirtualUser':Button1Up(Vector2.new(99,99))
-			end
-		end
-	until game.Players.LocalPlayer.Team ~= nil and game:IsLoaded()
-	end -- close: if Main GUI exists block
-	print("[BananaHub] Team OK, loading main UI...")
+	-- ===== TEAM SELECT ข้ามไป (buggy ใน BF เวอร์ชั่นใหม่) =====
+	print("[BananaHub] skipping team select, loading main UI...")
 	wait(1)
 	
 	if game.CoreGui.RobloxGui:FindFirstChild("Voice Chat Ui") then game.CoreGui.RobloxGui:FindFirstChild("Voice Chat Ui"):Destroy() end
