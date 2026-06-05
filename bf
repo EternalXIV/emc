@@ -18,6 +18,70 @@ pcall(function()
 end)
 print(("[BananaHub] BF loading... PlaceId=%s"):format(tostring(_placeId)))
 
+-- ============================================================
+-- GLOBAL TWEEN INTERCEPTOR
+-- เปลี่ยน HRP.CFrame = X (snap teleport) → tween อัตโนมัติ
+-- ระยะใกล้ (<10 studs) → snap (เพื่อ attack ปกติ)
+-- ระยะไกล → tween ความเร็วคงที่
+-- ============================================================
+do
+	local TweenService = game:GetService("TweenService")
+	local Players      = game:GetService("Players")
+	local lp           = Players.LocalPlayer
+
+	local TWEEN_SPEED  = 350      -- studs/sec
+	local SNAP_RADIUS  = 10       -- < นี้ → snap
+	local lastTween
+
+	_G.BananaTween = function(cf)
+		local char = lp.Character
+		local hrp  = char and char:FindFirstChild("HumanoidRootPart")
+		if not (hrp and cf) then return end
+		local dist = (cf.Position - hrp.Position).Magnitude
+		if dist < SNAP_RADIUS then
+			rawset({}, "x", nil) -- noop
+			hrp.CFrame = cf
+			return
+		end
+		local dur = math.clamp(dist / TWEEN_SPEED, 0.2, 6)
+		if lastTween then pcall(function() lastTween:Cancel() end) end
+		lastTween = TweenService:Create(hrp, TweenInfo.new(dur, Enum.EasingStyle.Linear), {CFrame = cf})
+		lastTween:Play()
+		local done = false
+		lastTween.Completed:Connect(function() done = true end)
+		local t0 = tick()
+		repeat task.wait(0.05) until done or (tick()-t0) > dur+1
+	end
+
+	-- hook __newindex ของ HRP เพื่อแปลง snap → tween
+	pcall(function()
+		local mt = getrawmetatable(game)
+		setreadonly(mt, false)
+		local old = mt.__newindex
+		mt.__newindex = newcclosure(function(self, key, val)
+			if key == "CFrame" and self.Name == "HumanoidRootPart"
+			   and self.Parent and self.Parent == lp.Character then
+				local dist = (val.Position - self.Position).Magnitude
+				if dist >= SNAP_RADIUS then
+					local dur = math.clamp(dist / TWEEN_SPEED, 0.2, 6)
+					if lastTween then pcall(function() lastTween:Cancel() end) end
+					lastTween = TweenService:Create(self, TweenInfo.new(dur, Enum.EasingStyle.Linear), {CFrame = val})
+					lastTween:Play()
+					return
+				end
+			end
+			return old(self, key, val)
+		end)
+		setreadonly(mt, true)
+		print("[BananaHub] tween interceptor ON (snap < 10 studs, tween 350 studs/sec)")
+	end)
+end
+
+-- silence setfflag errors
+if not pcall(function() return setfflag end) or type(setfflag) ~= "function" then
+	getfenv(0).setfflag = function() end
+end
+
 do
 	repeat wait() until game:IsLoaded()
 	if getgenv().Setting then else
